@@ -1,3 +1,20 @@
+"""
+Need to wire Azure document intelligence for OCR
+#we are currently doing with pytesseract model but it lacks extracting data from handwritten image
+One advantage of using Azure document intelligence is that
+it maintains the hierarchial docuyment structure
+
+whats map detection? - detecting boundaries on text, img and reconstructing them,
+
+
+#Todo
+1. First when a PDF with text and images are given , pytesseract is able to extract but the order varies/jumbled. Need to fix that
+2. Handwritten images? - Wire Azure 
+
+
+"""
+
+
 import io
 import shutil
 import uuid
@@ -8,6 +25,7 @@ import httpx
 import pytesseract
 from bs4 import BeautifulSoup
 from docx import Document
+from docx.oxml.ns import qn
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from PIL import Image
 from pypdf import PdfReader
@@ -16,6 +34,7 @@ from sqlalchemy.orm import Session
 
 from app.database import DATA_DIR, get_db
 from app.models import IngestedItem, SourceType
+from app.preprocessing import clean_text
 from app.schemas import IngestedItemResponse, TextIngestRequest, UrlIngestRequest
 
 router = APIRouter(prefix="/ingest", tags=["ingestion"])
@@ -36,73 +55,71 @@ if shutil.which("tesseract") is None:
 
 
 def extract_pdf_text(contents: bytes) -> str | None:
-    """Extract text per page: keep the native text layer if present, AND
-    independently OCR every embedded image on the page (a page can have
-    both). Falls back to OCR-ing a full-page render only when a page has
-    neither native text nor any discrete embedded image."""
+    """Extract text page by page, preserving reading order. Walks each
+    page's text/image blocks sorted top-to-bottom (left-to-right within a
+    row) so a caption stays next to the image it describes instead of all
+    native text being grouped before all OCR'd image text. Single-column
+    layout assumption — not a general multi-column reading-order solver."""
     try:
-        reader = PdfReader(io.BytesIO(contents)) #PdfReader is a function of pypdf . it can pull only embedded text not images/ other text as pictures
-        native_pages = [page.extract_text() or "" for page in reader.pages] #gets all pages with the typed content
-    except PdfReadError:
-        native_pages = []
-
-    try:
-        doc = fitz.open(stream=contents, filetype="pdf") #part of pymupdf . rasterize pages/images for OCR
+        doc = fitz.open(stream=contents, filetype="pdf")
     except Exception:
         doc = None
 
-    page_count = len(doc) if doc is not None else len(native_pages)
+    if doc is None:
+        # Can't rasterize without PyMuPDF; fall back to plain pypdf text with
+        # no ordering relative to images (nothing better is available).
+        try:
+            reader = PdfReader(io.BytesIO(contents))
+            pages_text = [page.extract_text() or "" for page in reader.pages]
+        except PdfReadError:
+            return None
+        return "\n\n".join(p.strip() for p in pages_text if p.strip()) or None
 
     results = []
-    for i in range(page_count): #this can range from nativer pages to len(doc)
+    for page in doc:
+        blocks = sorted(
+            page.get_text("dict")["blocks"],
+            key=lambda b: (round(b["bbox"][1]), b["bbox"][0]),
+        )
+
         page_parts = []
-
-        native = native_pages[i].strip() if i < len(native_pages) else ""
-        if native:
-            page_parts.append(native)
-
-        if doc is not None:
-            page = doc[i]
-            images = page.get_images(full=True)
-            if images and native:
-                # Page already has native text: OCR just the image regions,
-                # rendered at their placed position/orientation on the page
-                # (not the raw embedded bytes, which can be pre-rotation/
-                # pre-scale and OCR noticeably worse).
-                for img_info in images:
-                    xref = img_info[0]
-                    try:
-                        for rect in page.get_image_rects(xref):
-                            pixmap = page.get_pixmap(clip=rect, dpi=200)
-                            image = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
-                            ocr_text = pytesseract.image_to_string(image).strip()
-                            if ocr_text:
-                                page_parts.append(ocr_text)
-                    except Exception:
-                        continue
-            elif not native:
-                # No native text at all: OCR the full page render. More
-                # robust than per-image extraction for scanned pages.
+        for block in blocks:
+            if block["type"] == 0:
+                block_text = "\n".join(
+                    "".join(span["text"] for span in line["spans"])
+                    for line in block["lines"]
+                ).strip()
+                if block_text:
+                    page_parts.append(block_text)
+            elif block["type"] == 1:
+                # Render this block's own placed region (not the raw
+                # embedded bytes, which can be pre-rotation/pre-scale and
+                # OCR noticeably worse than the rendered, positioned image).
                 try:
-                    pixmap = page.get_pixmap(dpi=200)
-                    rendered = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
-                    ocr_text = pytesseract.image_to_string(rendered).strip()
+                    rect = fitz.Rect(block["bbox"])
+                    pixmap = page.get_pixmap(clip=rect, dpi=200)
+                    image = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
+                    ocr_text = pytesseract.image_to_string(image).strip()
                     if ocr_text:
                         page_parts.append(ocr_text)
                 except Exception:
-                    pass
+                    continue
 
         if page_parts:
             results.append("\n".join(page_parts))
 
-    if doc is not None:
-        doc.close()
-
+    doc.close()
     return "\n\n".join(results) or None
 
 
 def extract_docx_text(contents: bytes) -> str | None:
-    """Pull paragraph text, table text, and OCR of any embedded images."""
+    """Pull paragraph text and OCR of inline images in document order —
+    each paragraph's own images are read from that paragraph's runs (where
+    they structurally live in the OOXML), not from the document-wide flat
+    relationship list, so an image embedded mid-paragraph comes out next to
+    the text around it instead of all images being grouped at the end.
+    Table content is appended after all paragraphs (not interleaved into
+    exact body order)."""
     try:
         document = Document(io.BytesIO(contents))
     except Exception:
@@ -110,9 +127,24 @@ def extract_docx_text(contents: bytes) -> str | None:
 
     parts = []
 
-    paragraphs_text = "\n".join(p.text for p in document.paragraphs if p.text.strip())
-    if paragraphs_text:
-        parts.append(paragraphs_text)
+    for paragraph in document.paragraphs:
+        para_text = paragraph.text.strip()
+        if para_text:
+            parts.append(para_text)
+
+        for run in paragraph.runs:
+            for blip in run._element.findall(".//" + qn("a:blip")):
+                rId = blip.get(qn("r:embed"))
+                if not rId:
+                    continue
+                try:
+                    image_part = document.part.related_parts[rId]
+                    image = Image.open(io.BytesIO(image_part.blob)).convert("RGB")
+                    ocr_text = pytesseract.image_to_string(image).strip()
+                    if ocr_text:
+                        parts.append(ocr_text)
+                except Exception:
+                    continue
 
     table_lines = []
     for table in document.tables:
@@ -123,17 +155,6 @@ def extract_docx_text(contents: bytes) -> str | None:
     if table_lines:
         parts.append("\n".join(table_lines))
 
-    for rel in document.part.rels.values():
-        if "image" not in rel.reltype:
-            continue
-        try:
-            image = Image.open(io.BytesIO(rel.target_part.blob)).convert("RGB")
-            ocr_text = pytesseract.image_to_string(image).strip()
-            if ocr_text:
-                parts.append(ocr_text)
-        except Exception:
-            continue
-
     return "\n\n".join(parts) or None
 
 
@@ -141,7 +162,7 @@ def extract_docx_text(contents: bytes) -> str | None:
 def ingest_text(payload: TextIngestRequest, db: Session = Depends(get_db)):
     item = IngestedItem(
         title=payload.title,
-        content=payload.content,
+        content=clean_text(payload.content),
         tags=payload.tags,
         source_type=SourceType.text,
     )
@@ -159,13 +180,12 @@ async def ingest_url(payload: UrlIngestRequest, db: Session = Depends(get_db)):
             resp.raise_for_status()
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {exc}")
-
     soup = BeautifulSoup(resp.text, "html.parser") #beautifyl soup parses the html and formulates like a tree
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
 
     page_title = soup.title.string.strip() if soup.title and soup.title.string else None
-    extracted_text = " ".join(soup.get_text(separator=" ").split())
+    extracted_text = clean_text(" ".join(soup.get_text(separator=" ").split()))
 
     item = IngestedItem(
         title=payload.title or page_title or str(payload.url),
@@ -198,9 +218,9 @@ async def ingest_file(
     if len(contents) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="File exceeds 20MB limit")
 
-    stored_name = f"{uuid.uuid4().hex}{extension}"
-    stored_path = UPLOAD_DIR / stored_name
-    stored_path.write_bytes(contents)
+    stored_name = f"{uuid.uuid4().hex}{extension}" #64 bit name for the file
+    stored_path = UPLOAD_DIR / stored_name 
+    stored_path.write_bytes(contents) #this basically stores an original content copy of whatever user uploads
 
     extracted_text = None
     if extension in {".txt", ".md"}:
@@ -209,6 +229,8 @@ async def ingest_file(
         extracted_text = extract_pdf_text(contents)
     elif extension == ".docx":
         extracted_text = extract_docx_text(contents)
+
+    extracted_text = clean_text(extracted_text)
 
     item = IngestedItem(
         title=title or file.filename or stored_name,
@@ -226,4 +248,4 @@ async def ingest_file(
 
 @router.get("", response_model=list[IngestedItemResponse])
 def list_ingested_items(db: Session = Depends(get_db)):
-    return db.query(IngestedItem).order_by(IngestedItem.created_at.desc()).all()
+    return db.query(IngestedItem).order_by(IngestedItem.created_at.desc()).all() #returns the ingested items in descending order by time
