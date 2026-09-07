@@ -30,3 +30,18 @@ class IngestedItemResponse(BaseModel):
     original_filename: str | None
     source_url: str | None
     created_at: datetime
+
+
+class AskRequest(BaseModel):
+    question: str
+
+
+class AskSource(BaseModel):
+    ingested_item_id: int
+    title: str
+    chunk_text: str
+
+
+class AskResponse(BaseModel):
+    answer: str
+    sources: list[AskSource]

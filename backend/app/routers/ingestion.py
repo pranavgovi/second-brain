@@ -32,6 +32,7 @@ from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 from sqlalchemy.orm import Session
 
+from app.chunking import store_chunks
 from app.database import DATA_DIR, get_db
 from app.models import IngestedItem, SourceType
 from app.preprocessing import clean_text
@@ -169,6 +170,8 @@ def ingest_text(payload: TextIngestRequest, db: Session = Depends(get_db)):
     db.add(item)
     db.commit()
     db.refresh(item)
+    store_chunks(item.id, item.content, db)
+    db.commit()
     return item
 
 
@@ -185,7 +188,7 @@ async def ingest_url(payload: UrlIngestRequest, db: Session = Depends(get_db)):
         tag.decompose()
 
     page_title = soup.title.string.strip() if soup.title and soup.title.string else None
-    extracted_text = clean_text(" ".join(soup.get_text(separator=" ").split()))
+    extracted_text = clean_text(" ".join(soup.get_text(separator=" ").split())) #preprocessing step
 
     item = IngestedItem(
         title=payload.title or page_title or str(payload.url),
@@ -197,6 +200,8 @@ async def ingest_url(payload: UrlIngestRequest, db: Session = Depends(get_db)):
     db.add(item)
     db.commit()
     db.refresh(item)
+    store_chunks(item.id, item.content, db)
+    db.commit()
     return item
 
 
@@ -243,6 +248,8 @@ async def ingest_file(
     db.add(item)
     db.commit()
     db.refresh(item)
+    store_chunks(item.id, item.content, db)
+    db.commit()
     return item
 
 
