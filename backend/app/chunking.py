@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.embeddings import embed_texts
 from app.models import Chunk
-
+from app.chroma_store import add_chunks_to_db 
 
 def chunk_text(text: str, chunk_size: int = 250, overlap: int = 50) -> list[str]:
     """Split text into overlapping chunks of ~chunk_size words. Splits only
@@ -40,13 +40,16 @@ def store_chunks(item_id: int, text: str | None, db: Session) -> None:
         return
 
     vectors = embed_texts(chunks)
-
+    chunks_for_chroma = []
     for index, (chunk, vector) in enumerate(zip(chunks, vectors)):
-        db.add(
-            Chunk(
-                ingested_item_id=item_id,
-                chunk_index=index,
-                text=chunk,
-                embedding=np.array(vector, dtype=np.float32).tobytes(),
-            )
-        )
+        c= Chunk(
+                        ingested_item_id=item_id,
+                        chunk_index=index,
+                        text=chunk,
+                        embedding=np.array(vector, dtype=np.float32).tobytes(),
+                    )
+        db.add(c)
+        chunks_for_chroma.append(c)
+    db.flush()
+    add_chunks_to_db(chunks_for_chroma)
+

@@ -9,7 +9,6 @@ const question = ref('')
 const loading = ref(false)
 const error = ref('')
 const answer = ref('')
-const sources = ref([])
 const asked = ref(false)
 const history = ref([])
 
@@ -38,13 +37,11 @@ async function submit() {
   try {
     const result = await ask(question.value)
     answer.value = result.answer
-    sources.value = result.sources
     asked.value = true
 
     history.value.unshift({
       question: question.value,
       answer: result.answer,
-      sources: result.sources,
       askedAt: new Date().toISOString(),
     })
     history.value = history.value.slice(0, MAX_HISTORY)
@@ -59,7 +56,6 @@ async function submit() {
 function clearAnswer() {
   question.value = ''
   answer.value = ''
-  sources.value = []
   error.value = ''
   asked.value = false
 }
@@ -94,32 +90,14 @@ onMounted(loadHistory)
         <v-card-text>{{ answer }}</v-card-text>
       </v-card>
 
-      <div v-if="sources.length" class="mb-6">
-        <h3 class="text-subtitle-1 mb-2">Sources</h3>
-        <v-expansion-panels variant="accordion">
-          <v-expansion-panel v-for="(source, i) in sources" :key="i" :title="source.title">
-            <v-expansion-panel-text>{{ source.chunk_text }}</v-expansion-panel-text>
-          </v-expansion-panel>
-        </v-expansion-panels>
-      </div>
+    
 
       <div v-if="history.length">
         <h3 class="text-subtitle-1 mb-2">Past searches</h3>
         <v-expansion-panels variant="accordion">
           <v-expansion-panel v-for="(entry, i) in history" :key="i" :title="entry.question">
             <v-expansion-panel-text>
-              <p class="mb-3">{{ entry.answer }}</p>
-              <div v-if="entry.sources.length">
-                <div class="text-caption text-medium-emphasis mb-1">Sources</div>
-                <v-chip
-                  v-for="(source, j) in entry.sources"
-                  :key="j"
-                  size="small"
-                  class="mr-1 mb-1"
-                >
-                  {{ source.title }}
-                </v-chip>
-              </div>
+              <p>{{ entry.answer }}</p>
             </v-expansion-panel-text>
           </v-expansion-panel>
         </v-expansion-panels>

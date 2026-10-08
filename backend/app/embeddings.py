@@ -1,7 +1,8 @@
+#this embeddings.py wont be needed as we delegate the conversion to embeddings to chroma db
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from sqlalchemy.orm import Session
-
+from app.chroma_store import chroma_vector_store
 from app.models import Chunk
 
 # Loaded once at import time — loading the model is slow (seconds), so this
@@ -33,23 +34,41 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     return float(np.dot(a_arr, b_arr) / denom)
 
 
-def find_similar_chunks(query: str, db: Session, top_k: int = 5) -> list[Chunk]:
-    """Brute-force cosine similarity search over every stored chunk. Fine at
-    personal scale (hundreds/low-thousands of chunks) — no vector DB/ANN
-    index needed."""
-    chunks = db.query(Chunk).all()
-    if not chunks:
-        return []
+# def find_similar_chunks(
+#     query: str, db: Session, top_k: int = 5, min_similarity: float = 0.3
+# ) -> list[Chunk]:
+#     """Brute-force cosine similarity search over every stored chunk. Fine at
+#     personal scale (hundreds/low-thousands of chunks) — no vector DB/ANN
+#     index needed.
 
-    query_vector = np.asarray(embed_text(query))#question gets embedded as well and compared
-    query_norm = np.linalg.norm(query_vector)
+#     min_similarity filters out chunks that aren't actually relevant instead
+#     of always padding the result out to top_k — empirically (all-MiniLM-L6-v2
+#     on this project's content), genuinely relevant matches score ~0.55+,
+#     loosely-related content drops to ~0.1-0.15, and unrelated content sits
+#     near 0.0. 0.3 sits cleanly in that gap. So a query with only 2-3 truly
+#     relevant chunks returns 2-3, not top_k padded with irrelevant ones."""
+#     chunks = db.query(Chunk).all()
+#     if not chunks:
+#         return []
 
-    scored = []
-    for chunk in chunks:
-        chunk_vector = np.frombuffer(chunk.embedding, dtype=np.float32)
-        denom = query_norm * np.linalg.norm(chunk_vector)
-        similarity = float(np.dot(query_vector, chunk_vector) / denom) if denom else 0.0
-        scored.append((similarity, chunk))
+#     query_vector = np.asarray(embed_text(query))#question gets embedded as well and compared
+#     query_norm = np.linalg.norm(query_vector)
 
-    scored.sort(key=lambda pair: pair[0], reverse=True)
-    return [chunk for _, chunk in scored[:top_k]]
+#     scored = []
+#     for chunk in chunks:
+#         chunk_vector = np.frombuffer(chunk.embedding, dtype=np.float32)
+#         denom = query_norm * np.linalg.norm(chunk_vector)
+#         similarity = float(np.dot(query_vector, chunk_vector) / denom) if denom else 0.0
+#         if similarity >= min_similarity:
+#             scored.append((similarity, chunk))
+
+#     scored.sort(key=lambda pair: pair[0], reverse=True)
+#     return [chunk for _, chunk in scored[:top_k]]
+
+#this will return the nearest neighbors by doing HNSW algo
+def find_similar_neighbors(question:str):
+    result = chroma_vector_store.query(
+        query_texts= [question]
+        
+    )
+    return [docoument for docoument in result["documents"][0]]

@@ -36,12 +36,6 @@ class AskRequest(BaseModel):
     question: str
 
 
-class AskSource(BaseModel):
-    ingested_item_id: int
-    title: str
-    chunk_text: str
-
-
 class AskResponse(BaseModel):
     answer: str
-    sources: list[AskSource]
+
