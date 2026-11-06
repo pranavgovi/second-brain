@@ -1,4 +1,3 @@
-#this embeddings.py wont be needed as we delegate the conversion to embeddings to chroma db
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from sqlalchemy.orm import Session
@@ -71,4 +70,11 @@ def find_similar_neighbors(question:str):
         query_texts= [question]
         
     )
-    return [docoument for docoument in result["documents"][0]]
+    return [document for document in result["documents"][0]]
+
+def find_similar_chunks_with_sources(question:str, top_k:int= 5):
+    result = chroma_vector_store.query(
+            query_texts= [question],
+            n_results= top_k       
+        )
+    return list(zip(result["documents"][0], result["metadatas"][0]))

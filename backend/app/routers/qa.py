@@ -12,7 +12,6 @@ NO_CONTENT_ANSWER = "I don't have any relevant information in the ingested notes
 @router.post("/ask", response_model=AskResponse)
 async def ask(payload: AskRequest):
     chunks = find_similar_neighbors(payload.question)
-    print(chunks)
     if not chunks:
         return AskResponse(answer=NO_CONTENT_ANSWER)
 

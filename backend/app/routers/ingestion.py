@@ -170,7 +170,7 @@ def ingest_text(payload: TextIngestRequest, db: Session = Depends(get_db)):
     db.add(item)
     db.commit()
     db.refresh(item)
-    store_chunks(item.id, item.content, db)
+    store_chunks(item.id, item.content, db, item.title)
     db.commit()
     return item
 
@@ -200,7 +200,7 @@ async def ingest_url(payload: UrlIngestRequest, db: Session = Depends(get_db)):
     db.add(item)
     db.commit()
     db.refresh(item)
-    store_chunks(item.id, item.content, db)
+    store_chunks(item.id, item.content, db, item.title)
     db.commit()
     return item
 
@@ -248,7 +248,7 @@ async def ingest_file(
     db.add(item)
     db.commit()
     db.refresh(item)
-    store_chunks(item.id, item.content, db)
+    store_chunks(item.id, item.content, db, item.title)
     db.commit()
     return item
 

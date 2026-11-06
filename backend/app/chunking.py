@@ -29,7 +29,7 @@ def chunk_text(text: str, chunk_size: int = 250, overlap: int = 50) -> list[str]
     return chunks
 
 
-def store_chunks(item_id: int, text: str | None, db: Session) -> None:
+def store_chunks(item_id: int, text: str | None, db: Session, title:str) -> None:
     """Chunk `text`, embed each chunk (batched), and persist them as Chunk
     rows linked to the given ingested item. No-op if there's no text."""
     if not text:
@@ -39,7 +39,7 @@ def store_chunks(item_id: int, text: str | None, db: Session) -> None:
     if not chunks:
         return
 
-    vectors = embed_texts(chunks)
+    vectors = embed_texts(chunks) #we still embed the chunks using an embeddidng model sentence transformer
     chunks_for_chroma = []
     for index, (chunk, vector) in enumerate(zip(chunks, vectors)):
         c= Chunk(
@@ -51,5 +51,5 @@ def store_chunks(item_id: int, text: str | None, db: Session) -> None:
         db.add(c)
         chunks_for_chroma.append(c)
     db.flush()
-    add_chunks_to_db(chunks_for_chroma)
+    add_chunks_to_db(chunks_for_chroma, item_id, title)
 

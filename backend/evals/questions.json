@@ -1,0 +1,35 @@
+[
+    {"question":"What is the use of LiteLlm",
+    "reference_answer": "gives u an unified interface to call over 100 LLM providers without changing the code, handling auth, request/response models , error types .Helps in swapping providers without rewriting the code"
+},
+{
+    "question": "What is the time complexity of the algorithm HNSW",
+    "reference_answer":" It walks over a tree like structure resulting in O(logn) complexity  "
+},
+{
+    "question": "What is the data structure used by HNSW",
+    "reference_answer": "It uses a graph like structure. It can be imagined as a graph like sturcture that is sparse at the top layer …as it goes down and the final layer is dense containing all the embeddings"
+},
+{
+    "question": "Different types of messages passed to the model",
+    "reference_answer":"System message, AI message, human message, tool call message"
+},
+{
+    "question": "What is the use of tool message",
+    "reference_answer":"The tool message is just the result that comes back after your code actually runs the function "
+},{
+    "question": "What is the use of cosine similarity?",
+    "reference_answer":"It compares embeddings and retrieves related embedding for a question."
+},{
+    "question": "How retrieval layer is scored?",
+    "reference_answer":". Retrieval is scored with hit rate and MRR, which check whether the right chunk came back and how high it ranked. Generation is scored with an LLM as judge on faithfulness, correctness, and relevance. "
+},
+{
+    "question": "What is the difference between streaming and batching",
+    "reference_answer":"Streaming the model's contents is basically start generating the LLM's output before it is even fully generated. This is purely done to enhance user experience  Usually , once the output is fully created and it is generated at once after taking a considerable amount of time. Basically combining independent requests and providing it to the LLM . A config parameter can also be given for the number of parallel requests to process at once. "
+},
+{
+    "question":"What is the use of doc string in a function tool?",
+    "reference_answer":"While defining a tool function it is important to define the docstring. because it provides context to the LLM "
+}
+]
